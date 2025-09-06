@@ -1,13 +1,76 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import React from 'react';
+import { Layout } from '@/components/Layout';
+import { ProjectSetup } from '@/components/ProjectSetup';
+import { FileUpload } from '@/components/FileUpload';
+import { TrainingProgress } from '@/components/TrainingProgress';
+import { Studio } from '@/components/Studio';
+import { useProject } from '@/hooks/useProject';
 
 const Index = () => {
+  const {
+    project,
+    generations,
+    trainingJob,
+    updateProjectStatus,
+    startTraining,
+    generateSlogans,
+    generateLogo,
+    rateGeneration,
+    starGeneration,
+  } = useProject();
+
+  const handleProjectSetup = (data: any) => {
+    // Update project with setup data
+    updateProjectStatus('uploaded');
+  };
+
+  const handleUploadComplete = (files: File[], palette: string[]) => {
+    // Handle file upload completion
+    updateProjectStatus('training');
+  };
+
+  const handleTrainingComplete = () => {
+    updateProjectStatus('ready');
+  };
+
+  const renderCurrentStep = () => {
+    switch (project.status) {
+      case 'setup':
+        return <ProjectSetup onComplete={handleProjectSetup} />;
+      case 'uploaded':
+        return (
+          <FileUpload
+            onComplete={handleUploadComplete}
+            palette={project.palette}
+          />
+        );
+      case 'training':
+        return (
+          <TrainingProgress
+            trainingJob={trainingJob}
+            onStartTraining={startTraining}
+            onComplete={handleTrainingComplete}
+          />
+        );
+      case 'ready':
+        return (
+          <Studio
+            generations={generations}
+            onGenerateSlogans={generateSlogans}
+            onGenerateLogo={generateLogo}
+            onRateGeneration={rateGeneration}
+            onStarGeneration={starGeneration}
+          />
+        );
+      default:
+        return <ProjectSetup onComplete={handleProjectSetup} />;
+    }
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
-    </div>
+    <Layout>
+      {renderCurrentStep()}
+    </Layout>
   );
 };
 
