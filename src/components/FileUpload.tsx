@@ -13,6 +13,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onComplete, palette }) =
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [extractedPalette, setExtractedPalette] = useState<string[]>(palette);
+  const [isExtracting, setIsExtracting] = useState(false);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -24,6 +25,100 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onComplete, palette }) =
     }
   }, []);
 
+  const extractColorsFromImage = useCallback(async (file: File): Promise<string[]> => {
+    return new Promise<string[]>((resolve) => {
+      const img = document.createElement('img') as HTMLImageElement;
+      img.crossOrigin = 'anonymous';
+      
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            resolve(['#8B5CF6', '#A78BFA', '#C4B5FD', '#E0E7FF', '#F3F4F6']);
+            return;
+          }
+          
+          // Resize image for faster processing
+          const maxSize = 150;
+          const ratio = Math.min(maxSize / img.width, maxSize / img.height);
+          canvas.width = img.width * ratio;
+          canvas.height = img.height * ratio;
+          
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imageData.data;
+          
+          // Extract dominant colors using a simple sampling approach
+          const colorCounts = new Map<string, number>();
+          
+          // Sample every 8th pixel for performance
+          for (let i = 0; i < data.length; i += 32) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const a = data[i + 3];
+            
+            // Skip transparent pixels
+            if (a < 128) continue;
+            
+            // Group similar colors (reduce precision)
+            const rBucket = Math.floor(r / 32) * 32;
+            const gBucket = Math.floor(g / 32) * 32;
+            const bBucket = Math.floor(b / 32) * 32;
+            
+            const color = `${rBucket},${gBucket},${bBucket}`;
+            colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
+          }
+          
+          // Get the most frequent colors
+          const sortedColors = Array.from(colorCounts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 8)
+            .map(([color]) => {
+              const [r, g, b] = color.split(',').map(Number);
+              return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+            });
+          
+          if (sortedColors.length > 0) {
+            resolve(sortedColors);
+          } else {
+            resolve(['#8B5CF6', '#A78BFA', '#C4B5FD', '#E0E7FF', '#F3F4F6']);
+          }
+        } catch (error) {
+          console.error('Error extracting colors:', error);
+          resolve(['#8B5CF6', '#A78BFA', '#C4B5FD', '#E0E7FF', '#F3F4F6']);
+        }
+      };
+      
+      img.onerror = () => {
+        console.error('Error loading image for color extraction');
+        resolve(['#8B5CF6', '#A78BFA', '#C4B5FD', '#E0E7FF', '#F3F4F6']);
+      };
+      
+      img.src = URL.createObjectURL(file);
+    });
+  }, []);
+
+  const processFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+    
+    setIsExtracting(true);
+    setUploadedFiles(prev => [...prev, ...files]);
+    
+    try {
+      // Extract colors from the first image (representative of the batch)
+      const colors = await extractColorsFromImage(files[0]);
+      setExtractedPalette(colors);
+    } catch (error) {
+      console.error('Error processing files:', error);
+    } finally {
+      setIsExtracting(false);
+    }
+  }, [extractColorsFromImage]);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -33,22 +128,12 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onComplete, palette }) =
       file.type.startsWith('image/')
     );
     
-    if (files.length > 0) {
-      setUploadedFiles(prev => [...prev, ...files]);
-      // Mock palette extraction
-      const mockColors = ['#8B5CF6', '#A78BFA', '#C4B5FD', '#E0E7FF', '#F3F4F6'];
-      setExtractedPalette(mockColors);
-    }
-  }, []);
+    processFiles(files);
+  }, [processFiles]);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    if (files.length > 0) {
-      setUploadedFiles(prev => [...prev, ...files]);
-      // Mock palette extraction
-      const mockColors = ['#8B5CF6', '#A78BFA', '#C4B5FD', '#E0E7FF', '#F3F4F6'];
-      setExtractedPalette(mockColors);
-    }
+    processFiles(files);
   };
 
   const removeFile = (index: number) => {
@@ -147,15 +232,19 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onComplete, palette }) =
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {extractedPalette.length > 0 ? (
+              {isExtracting ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <div className="animate-pulse">Extracting colors...</div>
+                </div>
+              ) : extractedPalette.length > 0 ? (
                 <div className="grid grid-cols-2 gap-3">
-                  {extractedPalette.map((color, index) => (
+                  {extractedPalette.slice(0, 6).map((color, index) => (
                     <div key={index} className="flex items-center space-x-2">
                       <div
                         className="w-8 h-8 rounded-lg border-2 border-border"
                         style={{ backgroundColor: color }}
                       />
-                      <span className="text-sm font-mono">{color}</span>
+                      <span className="text-sm font-mono">{color.toUpperCase()}</span>
                     </div>
                   ))}
                 </div>
